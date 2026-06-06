@@ -27,6 +27,7 @@ CHROMA_DB_PATH = APP_DIR / "chroma_db"
 
 
 def clean_text(value, fallback="Unknown"):
+    """Safely clean and escape text values."""
     if pd.isna(value):
         return fallback
     text = str(value).strip()
@@ -36,6 +37,7 @@ def clean_text(value, fallback="Unknown"):
 
 
 def load_dataset():
+    """Load the first available CSV dataset."""
     for file_name in DATA_FILES:
         file_path = APP_DIR / file_name
         if file_path.exists():
@@ -91,6 +93,7 @@ if not BOOKS_DF.empty:
 
 
 def build_search_index(df):
+    """Build a full-text search index."""
     if df.empty:
         return pd.Series(dtype=str)
 
@@ -120,6 +123,7 @@ SEARCH_INDEX = build_search_index(BOOKS_DF)
 
 
 def dropdown_values(column):
+    """Extract unique values for dropdown filters."""
     if BOOKS_DF.empty or column not in BOOKS_DF.columns:
         return ["All"]
     values = sorted(v for v in BOOKS_DF[column].dropna().astype(str).unique() if v.strip())
@@ -156,28 +160,8 @@ def truncate(value, limit=280):
     return text[: limit - 3].rstrip() + "..."
 
 
-def semantic_search_query(query, k=50):
-    """Retrieve semantically similar books from Chroma."""
-    if not CHROMA_DB or not query or query.strip() == "":
-        return []
-    
-    try:
-        results = CHROMA_DB.similarity_search(query, k=k)
-        indices = []
-        for result in results:
-            try:
-                idx = int(result.metadata.get("idx", -1))
-                if idx >= 0 and idx < len(BOOKS_DF):
-                    indices.append(idx)
-            except (ValueError, KeyError):
-                pass
-        return indices
-    except Exception as e:
-        print(f"[WARN] Semantic search failed: {e}")
-        return []
-
-
 def book_cover_html(row):
+    """Generate HTML for book cover or fallback initials."""
     title = html.escape(clean_text(row.get("title"), "Untitled"))
     author = html.escape(clean_text(row.get("authors")))
     thumb = clean_text(row.get("thumbnail"), "")
@@ -194,6 +178,7 @@ def book_cover_html(row):
 
 
 def dominant_emotion_key(row):
+    """Get the dominant emotion for a row."""
     available = [column for column in EMOTION_COLUMNS if column in row.index]
     if not available:
         return ""
@@ -205,6 +190,7 @@ def dominant_emotion_key(row):
 
 
 def dominant_emotion_series(df):
+    """Get dominant emotion for each row in dataframe."""
     available = [column for column in EMOTION_COLUMNS if column in df.columns]
     if not available or df.empty:
         return pd.Series("", index=df.index)
@@ -214,11 +200,13 @@ def dominant_emotion_series(df):
 
 
 def dominant_emotion(row):
+    """Format dominant emotion as title case."""
     emotion = dominant_emotion_key(row)
     return emotion.title() if emotion else "Unknown"
 
 
 def render_cards(rows):
+    """Render book cards as HTML."""
     if rows.empty:
         return '<div class="empty">No matching books found. Try a broader search.</div>'
 
@@ -255,52 +243,25 @@ def render_cards(rows):
     return '<div class="results-grid">' + "\n".join(cards) + "</div>"
 
 
-def render_paginated_results(rows, page=1, items_per_page=10):
-    """Render paginated book results with pagination controls."""
-    if rows.empty:
-        return '<div class="empty">No matching books found. Try a broader search.</div>', 1
+def semantic_search_query(query, k=50):
+    """Retrieve semantically similar books from Chroma."""
+    if not CHROMA_DB or not query or query.strip() == "":
+        return []
     
-    total_items = len(rows)
-    total_pages = (total_items + items_per_page - 1) // items_per_page
-    page = max(1, min(page, total_pages))
-    
-    start_idx = (page - 1) * items_per_page
-    end_idx = min(start_idx + items_per_page, total_items)
-    page_rows = rows.iloc[start_idx:end_idx]
-    
-    cards_html = render_cards(page_rows)
-    
-    # Generate pagination buttons
-    pagination_html = '<div style="text-align:center; margin-top:24px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">'
-    
-    if total_pages > 1:
-        # Previous button
-        if page > 1:
-            pagination_html += f'<button onclick="document.querySelector(\'[data-page=prev]\')?.click()" style="padding:8px 12px; border:1px solid #d8a24b; background:transparent; color:#d8a24b; cursor:pointer; border-radius:4px;">←</button>'
-        
-        # Page numbers
-        start_page = max(1, page - 2)
-        end_page = min(total_pages, page + 2)
-        
-        if start_page > 1:
-            pagination_html += '<button style="padding:8px 12px; border:none; background:transparent; color:#b9aa98; cursor:default;">...</button>'
-        
-        for p in range(start_page, end_page + 1):
-            if p == page:
-                pagination_html += f'<button style="padding:8px 12px; border:1px solid #d8a24b; background:#d8a24b; color:#090b0f; cursor:default; border-radius:4px; font-weight:bold;">{p}</button>'
-            else:
-                pagination_html += f'<button onclick="document.querySelector(\'[data-page={p}]\')?.click()" style="padding:8px 12px; border:1px solid #d8a24b; background:transparent; color:#d8a24b; cursor:pointer; border-radius:4px;">{p}</button>'
-        
-        if end_page < total_pages:
-            pagination_html += '<button style="padding:8px 12px; border:none; background:transparent; color:#b9aa98; cursor:default;">...</button>'
-        
-        # Next button
-        if page < total_pages:
-            pagination_html += f'<button onclick="document.querySelector(\'[data-page=next]\')?.click()" style="padding:8px 12px; border:1px solid #d8a24b; background:transparent; color:#d8a24b; cursor:pointer; border-radius:4px;">→</button>'
-    
-    pagination_html += '</div>'
-    
-    return cards_html + pagination_html + f'<p style="text-align:center; color:#b9aa98; margin-top:12px; font-size:14px;">Page {page} of {total_pages} ({total_items} results)</p>', page
+    try:
+        results = CHROMA_DB.similarity_search(query, k=k)
+        indices = []
+        for result in results:
+            try:
+                idx = int(result.metadata.get("idx", -1))
+                if idx >= 0 and idx < len(BOOKS_DF):
+                    indices.append(idx)
+            except (ValueError, KeyError):
+                pass
+        return indices
+    except Exception as e:
+        print(f"[WARN] Semantic search failed: {e}")
+        return []
 
 
 def rank_books(query, collection, genre, mood, minimum_rating):
@@ -387,25 +348,25 @@ def rank_books(query, collection, genre, mood, minimum_rating):
         ascending=False,
     )
 
+    if text_terms or query:
+        ranked = ranked[ranked["_score"] > 0]
+    
     return ranked.drop(columns=["_score"], errors="ignore")
 
 
 def search_books(query, collection, genre, mood):
+    """Search and rank books, returning top 6 as HTML cards."""
     ranked = rank_books(query, collection, genre, mood, minimum_rating=0)
-    return ranked
+    return render_cards(ranked.head(6))
 
 
 def featured_books():
+    """Get featured books (top rated)."""
     ranked = rank_books("", "All", "All", "All", 0)
-    return ranked.head(6)
+    return render_cards(ranked.head(6))
 
 
-def render_with_pagination(results_df, page=1):
-    """Render results with pagination controls."""
-    html_output, _ = render_paginated_results(results_df, page=page, items_per_page=10)
-    return html_output
-
-
+# Custom CSS for the UI
 CUSTOM_CSS = """
 :root {
   --ink:#f7efe5;
@@ -663,10 +624,6 @@ button.primary:hover {
   .hero {
     padding:24px;
     min-height:310px;
-    background:
-      linear-gradient(180deg, rgba(9,11,15,.94), rgba(9,11,15,.76)),
-      url("https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1000&q=80");
-    background-size:cover;
   }
 
   .results-grid {
@@ -689,7 +646,6 @@ button.primary:hover {
 }
 """
 
-
 HEADER_HTML = """
 <section class="hero">
   <div>
@@ -699,13 +655,9 @@ HEADER_HTML = """
 </section>
 """
 
-
+# Build Gradio UI
 with gr.Blocks(title="The Obsidian Index") as demo:
     gr.HTML(HEADER_HTML)
-    
-    # State to store results dataframe
-    results_state = gr.State(featured_books())
-    current_page_state = gr.State(1)
 
     with gr.Group(elem_id="search-panel"):
         with gr.Row():
@@ -722,42 +674,11 @@ with gr.Blocks(title="The Obsidian Index") as demo:
             mood = gr.Dropdown(MOODS, value="All", label="Mood / Emotion")
 
     gr.HTML('<h2 class="section-title">Recommendations</h2>')
-    
-    with gr.Row():
-        page_input = gr.Number(value=1, label="Page", minimum=1, step=1)
-    
-    results = gr.HTML(value=render_with_pagination(featured_books(), page=1))
+    results = gr.HTML(value=featured_books())
 
-    def on_search(query, collection, genre, mood):
-        """Handle search and return results + reset page to 1."""
-        ranked = search_books(query, collection, genre, mood)
-        return ranked, 1, render_with_pagination(ranked, page=1)
-    
-    def on_page_change(results_df, page):
-        """Re-render results for the selected page."""
-        try:
-            return render_with_pagination(results_df, page=int(page))
-        except Exception:
-            return '<div class="empty">Error loading page.</div>'
-    
     search_inputs = [query, collection, genre, mood]
-    
-    search_btn.click(
-        on_search, 
-        inputs=search_inputs, 
-        outputs=[results_state, current_page_state, results]
-    )
-    query.submit(
-        on_search, 
-        inputs=search_inputs, 
-        outputs=[results_state, current_page_state, results]
-    )
-    
-    page_input.change(
-        on_page_change,
-        inputs=[results_state, page_input],
-        outputs=results
-    )
+    search_btn.click(search_books, inputs=search_inputs, outputs=results)
+    query.submit(search_books, inputs=search_inputs, outputs=results)
 
 
 if __name__ == "__main__":
